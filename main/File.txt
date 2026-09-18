@@ -1,0 +1,395 @@
+#include <SFML/Graphics.hpp>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+float sizeX = 100.f;
+float sizeY = 70.f;
+
+float sizeXR = 30.f;
+float sizeYR = 60.f;
+
+
+// ------------------------------------------------------------
+// Point vs Rectangle
+// ------------------------------------------------------------
+bool isPointOnRect(
+    const sf::Vector2i& mousePos,
+    const sf::Vector2f& playerPos)
+{
+    return
+        mousePos.x >= playerPos.x &&
+        mousePos.y >= playerPos.y &&
+        mousePos.x <= playerPos.x + sizeX &&
+        mousePos.y <= playerPos.y + sizeY;
+}
+
+
+// ------------------------------------------------------------
+// Rectangle vs Rectangle
+// ------------------------------------------------------------
+bool RectVsRect(
+    const sf::Vector2f& r1,
+    const sf::Vector2f& r2)
+{
+    return
+        r1.x < r2.x + sizeXR &&
+        r1.x + sizeX > r2.x &&
+        r1.y < r2.y + sizeYR &&
+        r1.y + sizeY > r2.y;
+}
+
+
+// ------------------------------------------------------------
+// Ray vs Rectangle
+//
+// ray_origin = starting point of ray
+// ray_dir    = direction of ray
+// target     = rectangle to test
+//
+// contact_point and contact_normal are output values.
+// ------------------------------------------------------------
+bool RayVsRect(
+    const sf::Vector2f& ray_origin,
+    const sf::Vector2f& ray_dir,
+    const sf::RectangleShape& target,
+    sf::Vector2f& contact_point,
+    sf::Vector2f& contact_normal)
+{
+    sf::Vector2f targetMin = target.getPosition();
+    sf::Vector2f targetMax =
+        target.getPosition() + target.getSize();
+
+    float tNearX;
+    float tFarX;
+
+    float tNearY;
+    float tFarY;
+
+
+    // --------------------------------------------------------
+    // X axis
+    // --------------------------------------------------------
+
+    if (std::abs(ray_dir.x) < 0.000001f)
+    {
+        // Ray is parallel to X slabs
+
+        if (ray_origin.x < targetMin.x ||
+            ray_origin.x > targetMax.x)
+        {
+            return false;
+        }
+
+        tNearX = -std::numeric_limits<float>::infinity();
+        tFarX = std::numeric_limits<float>::infinity();
+    }
+    else
+    {
+        tNearX = (targetMin.x - ray_origin.x) / ray_dir.x;
+        tFarX = (targetMax.x - ray_origin.x) / ray_dir.x;
+
+        if (tNearX > tFarX)
+            std::swap(tNearX, tFarX);
+    }
+
+
+    // --------------------------------------------------------
+    // Y axis
+    // --------------------------------------------------------
+
+    if (std::abs(ray_dir.y) < 0.000001f)
+    {
+        // Ray is parallel to Y slabs
+
+        if (ray_origin.y < targetMin.y ||
+            ray_origin.y > targetMax.y)
+        {
+            return false;
+        }
+
+        tNearY = -std::numeric_limits<float>::infinity();
+        tFarY = std::numeric_limits<float>::infinity();
+    }
+    else
+    {
+        tNearY = (targetMin.y - ray_origin.y) / ray_dir.y;
+        tFarY = (targetMax.y - ray_origin.y) / ray_dir.y;
+
+        if (tNearY > tFarY)
+            std::swap(tNearY, tFarY);
+    }
+
+
+    // --------------------------------------------------------
+    // Find intersection interval
+    // --------------------------------------------------------
+
+    float tNear = std::max(tNearX, tNearY);
+    float tFar = std::min(tFarX, tFarY);
+
+
+    // No intersection
+    if (tNear > tFar)
+        return false;
+
+
+    // Rectangle is completely behind ray
+    if (tFar < 0.0f)
+        return false;
+
+
+    // --------------------------------------------------------
+    // Contact point
+    // --------------------------------------------------------
+
+    contact_point =
+        ray_origin + ray_dir * tNear;
+
+
+    // --------------------------------------------------------
+    // Contact normal
+    // --------------------------------------------------------
+
+    if (tNearX > tNearY)
+    {
+        if (ray_dir.x < 0.0f)
+            contact_normal = sf::Vector2f(1.f, 0.f);
+        else
+            contact_normal = sf::Vector2f(-1.f, 0.f);
+    }
+    else
+    {
+        if (ray_dir.y < 0.0f)
+            contact_normal = sf::Vector2f(0.f, 1.f);
+        else
+            contact_normal = sf::Vector2f(0.f, -1.f);
+    }
+
+
+    return true;
+}
+
+
+// ------------------------------------------------------------
+// MAIN
+// ------------------------------------------------------------
+int main()
+{
+    sf::RenderWindow window(
+        sf::VideoMode(800, 600),
+        "Collision"
+    );
+
+    window.setFramerateLimit(144);
+
+
+    // --------------------------------------------------------
+    // Player rectangle
+    // --------------------------------------------------------
+
+    sf::RectangleShape player;
+
+    player.setSize(
+        sf::Vector2f(sizeX, sizeY)
+    );
+
+    player.setPosition(
+        window.getSize().x / 2.f,
+        window.getSize().y / 2.f
+    );
+
+    player.setFillColor(sf::Color::Red);
+
+
+    // --------------------------------------------------------
+    // Ray
+    // --------------------------------------------------------
+
+    sf::Vector2f ray_point(20.f, 20.f);
+
+    sf::Vector2f ray_direction;
+
+
+    // --------------------------------------------------------
+    // Variables
+    // --------------------------------------------------------
+
+    float speed = 100.f;
+
+    sf::Clock clock;
+    sf::Event event;
+
+
+    while (window.isOpen())
+    {
+        float dt =
+            clock.restart().asSeconds();
+
+
+        // ----------------------------------------------------
+        // Events
+        // ----------------------------------------------------
+
+        while (window.pollEvent(event))
+        {
+            if (event.type == sf::Event::Closed)
+            {
+                window.close();
+            }
+
+            if (event.type == sf::Event::KeyPressed)
+            {
+                if (event.key.code == sf::Keyboard::Escape)
+                {
+                    window.close();
+                }
+            }
+        }
+
+
+        // ----------------------------------------------------
+        // Mouse
+        // ----------------------------------------------------
+
+        sf::Vector2i mousePosition =
+            sf::Mouse::getPosition(window);
+
+
+        // Direction from ray origin to mouse
+        ray_direction =
+            sf::Vector2f(
+                static_cast<float>(mousePosition.x),
+                static_cast<float>(mousePosition.y)
+            ) - ray_point;
+
+
+        // ----------------------------------------------------
+        // Ray collision
+        // ----------------------------------------------------
+
+        sf::Vector2f contactPoint;
+        sf::Vector2f contactNormal;
+
+        bool hit = RayVsRect(
+            ray_point,
+            ray_direction,
+            player,
+            contactPoint,
+            contactNormal
+        );
+
+
+        // ----------------------------------------------------
+        // Player outline
+        // ----------------------------------------------------
+
+        if (hit)
+        {
+            player.setOutlineThickness(3.f);
+            player.setOutlineColor(sf::Color::White);
+        }
+        else
+        {
+            player.setOutlineThickness(3.f);
+            player.setOutlineColor(sf::Color::Red);
+        }
+
+
+        // ----------------------------------------------------
+        // Player movement
+        // ----------------------------------------------------
+
+        float playerX = 0.f;
+        float playerY = 0.f;
+
+        if (sf::Keyboard::isKeyPressed(
+            sf::Keyboard::W))
+        {
+            playerY = -1.f;
+        }
+
+        if (sf::Keyboard::isKeyPressed(
+            sf::Keyboard::S))
+        {
+            playerY = 1.f;
+        }
+
+        if (sf::Keyboard::isKeyPressed(
+            sf::Keyboard::D))
+        {
+            playerX = 1.f;
+        }
+
+        if (sf::Keyboard::isKeyPressed(
+            sf::Keyboard::A))
+        {
+            playerX = -1.f;
+        }
+
+
+        player.move(
+            playerX * speed * dt,
+            playerY * speed * dt
+        );
+
+
+        // ----------------------------------------------------
+        // Draw ray
+        // ----------------------------------------------------
+
+        sf::VertexArray line(
+            sf::Lines,
+            2
+        );
+
+        line[0].position = ray_point;
+        line[0].color = sf::Color::White;
+
+
+        // If hit, stop ray at collision point
+        if (hit)
+        {
+            line[1].position = contactPoint;
+            line[1].color = sf::Color::Yellow;
+        }
+        else
+        {
+            line[1].position =
+                ray_point + ray_direction;
+
+            line[1].color = sf::Color::White;
+        }
+
+
+        // ----------------------------------------------------
+        // Draw contact point
+        // ----------------------------------------------------
+
+        sf::CircleShape point(5.f);
+
+        point.setOrigin(5.f, 5.f);
+        point.setPosition(contactPoint);
+        point.setFillColor(sf::Color::Yellow);
+
+
+        // ----------------------------------------------------
+        // Render
+        // ----------------------------------------------------
+
+        window.clear(sf::Color::Black);
+
+        window.draw(player);
+        window.draw(line);
+
+        if (hit)
+        {
+            window.draw(point);
+        }
+
+        window.display();
+    }
+
+
+    return 0;
+}
